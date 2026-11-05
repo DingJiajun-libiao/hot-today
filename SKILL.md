@@ -1,7 +1,7 @@
 ---
 name: today-hot
 description: 抓取 GitHub、微博、抖音、小红书热点 + AIHOT(aihot.news) AI 行业热点,汇总生成带链接和详细说明的中文 Markdown 报告。适用于"今天/本周有什么热点""各平台热榜""GitHub 趋势+国内热搜""AI 圈今天在讨论什么"等请求。
-version: "1.0.0"
+version: "1.1.0"
 author: kun-user
 license: MIT
 metadata:
@@ -50,6 +50,16 @@ metadata:
 
 ## 工作流
 
+### 交付优先（硬约束，优先于一切）
+
+**无论抓取结果如何，本轮都必须产出并落盘 Markdown 报告；顺序是「先落盘，再分析」。**
+
+1. 退出码 `3`（部分平台失败）与 `1`（全部平台失败）**都不构成中断理由**，照常生成报告。
+2. 判定「交付成功」的唯一标准：**报告文件存在且大小 > 0**，而不是「所有平台都有数据」。
+3. **报告落盘之前**，禁止：探测/调研替代数据源、反复重试同一失败平台、修改 `scripts/` 或 `config.json`、等待用户确认。
+4. 平台失败时整节标注「数据暂不可用」并附 `meta.<platform>.error` 摘要；严禁用其他平台数据填充，严禁估算或编造热度与链接。
+5. 定时/无人值守场景（如每天 20:00）尤其要遵守本节：没有用户可追问，先交付再优化。
+
 ### Step 1 - 运行抓取脚本
 
 在**当前工作目录**(通常是用户的项目根目录,报告也输出到这里)执行,脚本用 skill 目录里的绝对路径:
@@ -81,23 +91,35 @@ python3 <skill-dir>/scripts/fetch_trends.py --platform github,weibo,douyin,xhs,a
 
 **为每个热点补充背景说明**(重要):依据标题、项目 README(可 `curl raw.githubusercontent.com/{repo}/main/README.md` 获取)、公开信息,写 2-4 句解读:是什么 + 为什么上榜/为什么热。
 
-### Step 3 - 生成 Markdown 报告
+### Step 3 - 生成 Markdown 报告（先保底落盘，再补全）
 
-按下方「输出规范」的排版模板生成报告,保存为:
+**第一步：立即用脚本落盘一份保底报告**（保证磁盘上先有交付物）：
+
+```bash
+python3 <skill-dir>/scripts/fallback_report.py ./trends_raw.json --out ./平台热点速览-YYYY-MM-DD.md
+```
+
+- 它只用 raw JSON 的真实数据生成「今日速览 + 五平台榜单」，失败平台如实标注「数据暂不可用」并附错误摘要；
+- 目标文件已存在且 >0 时默认跳过，不会覆盖已完成的完整报告（需要重写加 `--force`）。
+
+**第二步：按下方「输出规范」补全**，覆盖同一个文件：
 
 ```
 ./平台热点速览-YYYY-MM-DD.md
 ```
 
-(保存到当前工作目录;用户明确要求其他目录时按用户要求)
+（保存到当前工作目录；用户明确要求其他目录时按用户要求）
 
-只交付 Markdown,不做 HTML 渲染或网页预览(该能力已移除)。
+- 若连 `./trends_raw.json` 都不存在（脚本崩溃等极端情况），直接手写一份仅含五个平台「数据暂不可用」的最小报告并落盘。
+- 只交付 Markdown，不做 HTML 渲染或网页预览（该能力已移除）。
 
-### Step 4 - 清理与汇报
+### Step 4 - 校验、清理与汇报
 
-删除临时文件 `./trends_raw.json`(Windows PowerShell:`Remove-Item .\trends_raw.json`;macOS/Linux:`rm -f ./trends_raw.json`)。
-
-向用户汇报:文件路径 + 一句话总结各平台榜首。
+1. **先校验交付物**(`文件存在且大小 > 0`),不通过则立刻补写:
+   - Windows PowerShell:`if ((Get-Item .\平台热点速览-YYYY-MM-DD.md).Length -gt 0) { "OK" }`
+   - macOS/Linux:`test -s ./平台热点速览-YYYY-MM-DD.md && echo OK`
+2. 删除临时文件 `./trends_raw.json`(Windows PowerShell:`Remove-Item .\trends_raw.json`;macOS/Linux:`rm -f ./trends_raw.json`)。
+3. 向用户汇报:文件路径 + 一句话总结各平台榜首(失败平台写明失败)。
 
 ## 输出规范
 
@@ -202,7 +224,8 @@ AIHOT 的 category 取值:`ai-models`(模型)、`ai-products`(产品)、`industr
 ## 常见问题
 
 - **接口超时/429/5xx**:脚本自动处理——429 退避(1s/3s)后换源,5xx/超时重试一次后换源,某源在本轮内失效后不再重复等待。无需人工重试或手工合并 JSON;报告依据 `meta.<platform>` 标注可用性与原因。
-- **所有源都失败**:看 `meta.<platform>.error` 的 `tried` 列表;必要时用 `--config config.json` 换一批数据源。
+- **所有源都失败**:看 `meta.<platform>.error` 的 `tried` 列表;必要时用 `--config config.json` 换一批数据源。**注意:换源属于"报告落盘之后"的可选优化,不允许为换源推迟或放弃本轮交付。**
+- **定时/无人值守任务**:没有用户可追问,必须先跑 `fallback_report.py` 落盘再补全;全部平台失败也要交出文件,并在报告里写清失败原因。
 - **AIHOT 部分条目缺少 category/score**:说明该条不在 `/items?window=7d` 前 100 条内,属正常现象,表格分类留空即可,不影响出报告。
 - **用户要更多/更少**:默认 10 条,可通过 `--top N` 调整,报告同步调整(AIHOT 官方榜上限即 10 条)。
 - **用户要网页/HTML**:本 skill 只产出 Markdown,不提供渲染;如需网页,交给用户的查看器或自行用任意 Markdown 工具转换。

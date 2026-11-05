@@ -10,13 +10,14 @@
 - **真实可追溯**:每条热点带真实链接;接口失败如实标注,不编造数据与热度
 - **纯标准库**:抓取脚本只用 Python 标准库(3.9+),无第三方依赖、无 API Key
 - **内置容错**:429 指数退避、多镜像自动回退、AIHOT 重试;单平台失败不影响整份报告
+- **交付兜底**:定时/无人值守任务下,即使全部数据源失败,也会先落盘一份如实标注的保底报告(见 `scripts/fallback_report.py`)
 - **可定时**:由支持调度的 Agent 每天自动执行,报告落盘到工作目录
 
 ## 📦 安装
 
 ```bash
 # 从 GitHub 安装(把 <owner> 换成仓库所属账号)
-npx skills add <owner>/today-hot
+npx skills add <owner>/hot-today
 ```
 
 或手动安装:把本仓库复制到 Agent 的 skills 目录,例如:
@@ -39,7 +40,7 @@ npx skills add <owner>/today-hot
 - 「GitHub 趋势 + 国内热搜」
 - 「AI 圈今天在讨论什么」
 
-Agent 会先运行抓取脚本,再按模板生成 `平台热点速览-YYYY-MM-DD.md`(保存到当前工作目录)。
+Agent 会先运行抓取脚本,立即用 `fallback_report.py` 落一份保底报告到 `平台热点速览-YYYY-MM-DD.md`(当前工作目录),再按模板补全详解并覆盖它。
 
 也可以只运行抓取脚本获取结构化 JSON:
 
@@ -52,16 +53,25 @@ python3 <skill-dir>/scripts/fetch_trends.py \
 
 Windows 下把 `python3` 换成 `python`。
 
+**保底报告**(定时任务先落盘、后补全):
+
+```bash
+python3 <skill-dir>/scripts/fallback_report.py ./trends_raw.json \
+  --out ./平台热点速览-2026-11-05.md
+```
+
+只用原始数据生成「今日速览 + 五平台榜单」,失败平台标注 `meta` 错误摘要;目标文件已存在且非空时默认跳过(`--force` 强制重写)。Agent 随后按输出规范补全详解并覆盖同一文件。
+
 ## 📱 手机版与微信推送(可选)
 
 报告可以再转成适合手机阅读的纯文本,并(可选)主动投递到微信:
 
 ```bash
 # 1) 生成手机版(默认输出到 .md 同目录)
-python3 scripts/to_mobile_text.py 平台热点速览-2026-11-05.md --limit 1800
+python3 <skill-dir>/scripts/to_mobile_text.py 平台热点速览-2026-11-05.md --limit 1800
 
 # 2) 推送到微信(需要 DSH + @xmanrui/dsh-im 插件环境)
-python3 scripts/push_wechat.py 平台热点速览-2026-11-05.mobile.txt
+python3 <skill-dir>/scripts/push_wechat.py 平台热点速览-2026-11-05.mobile.txt
 ```
 
 - `to_mobile_text.py`:手机版只保留热点名——GitHub 每条三行(项目名 / 语言·今日增长 / 一句话简介),
@@ -121,6 +131,15 @@ python3 scripts/push_wechat.py 平台热点速览-2026-11-05.mobile.txt
 > 加载 today-hot skill,运行抓取脚本,生成 `平台热点速览-YYYY-MM-DD.md` 到当前工作目录。
 
 报告文件会按天落盘,可作为每日热点归档。
+
+### 交付保证
+
+定时/无人值守场景没有用户可追问,因此本 skill 采用「交付优先」(详见 `SKILL.md`):
+
+1. 抓取退出码 `3`(部分失败)/ `1`(全部失败)**都不是中断理由**;
+2. 抓完立即用 `fallback_report.py` 落盘一份保底报告,保证磁盘上先有交付物;
+3. 判定成功 = **文件存在且大小 > 0**,而不是「所有平台都有数据」;
+4. 报告落盘之前不探测替代源、不反复重试、不改脚本;失败平台在报告里如实标注 `meta` 错误摘要。
 
 ## ⚠️ 免责声明
 
