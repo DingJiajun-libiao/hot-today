@@ -11,10 +11,10 @@
     段与段之间用 `──── 段 N/M ────` 分隔，便于 IM 逐条发送。
 
 设计取舍:
-    - 表格转「行式」，去掉 Markdown 符号(微信不渲染表格/粗体)
-    - 微博/抖音的搜索链接是长串百分号编码，手机上不可读，默认省略；
-      GitHub / AIHOT 的链接短且可读，保留
-    - 详解正文过长，手机版只保留榜单与观察；完整详解仍在 .md 里
+    - 手机版只保留「热点名」级别的信息，不带任何链接
+    - GitHub：项目名｜语言｜增长｜一句话简介
+    - 微博 / 抖音 / 小红书 / AIHOT：仅热点标题
+    - 热度值、详解正文、横向观察不进入手机版（完整内容见 .md）
 """
 
 import argparse
@@ -122,102 +122,74 @@ def parse(md):
     return out
 
 
-def render(blocks, keep_url_platforms=("github", "aihot")):
+def render(blocks):
+    """手机版只保留「热点名」级别的信息：不带任何链接、热度与详解正文。
+
+    - GitHub：`项目名｜语言｜增长｜一句话简介`
+    - 微博 / 抖音 / 小红书 / AIHOT：仅热点标题
+    """
     lines = []
-    cur_table = None
-    keep = {}
+    cur_sec = None
+    sec_printed = False
+    github = False
+    failed_note = False
+
     for kind, payload in blocks:
         if kind == "title":
             lines.append(payload)
-        elif kind == "date":
+            continue
+        if kind == "date":
             lines.append(payload)
             lines.append("")
-        elif kind == "row":
+            continue
+        if kind == "row":
             sec, cells = payload
-            sec_name = (sec or "")
-            if "今日速览" in sec_name:
-                if cur_table != "summary":
-                    lines.append("")
-                    lines.append("【今日速览】")
-                    cur_table = "summary"
-                # 平台 | 榜首 | 热度 | 关键词
-                plat = cells[0]
-                title, _ = cell_link(cells[1]) if len(cells) > 1 else ("", "")
-                extra = cells[1] if len(cells) > 1 else ""
-                growth = re.search(r"\(([^)]*★)\)", extra)
-                heat = cells[2] if len(cells) > 2 else ""
-                badge = f" {growth.group(1)}" if growth else ""
-                if heat and heat != "—":
-                    lines.append(f"{plat}｜{title}{badge}｜{heat}")
-                else:
-                    lines.append(f"{plat}｜{title}{badge}")
+            sec_name = sec or ""
+            if not sec_name or "今日速览" in sec_name or "跨平台" in sec_name or "目录" in sec_name:
                 continue
-            # 非榜单表格(如「跨平台热点」「小红书失败说明」)：合并成一行
-            if len(cells) < 3 or not re.fullmatch(r"(🥇|🥈|🥉|\d+)", cells[0] or ""):
-                if cur_table != sec_name:
-                    lines.append("")
-                    lines.append(f"━━ {sec_name} ━━")
-                    cur_table = sec_name
-                pieces = [strip_md(c) for c in cells if c and c != "—"]
-                if pieces:
-                    lines.append("· " + "｜".join(pieces))
-                continue
-
-            # 榜单表格
-            if cur_table != sec_name:
+            if sec_name != cur_sec:
+                cur_sec = sec_name
+                sec_printed = False
+                github = "GitHub" in sec_name
+            if not sec_printed:
                 lines.append("")
                 lines.append(f"━━ {sec_name} ━━")
-                cur_table = sec_name
-            keep_url = any(k in sec_name.lower() for k in keep_url_platforms)
-
-            if "GitHub" in sec_name:
-                # # | 项目 | 语言 | 星标 | 增长 | 简介
-                rank, name_c, lang, stars, delta = cells[0], cells[1], cells[2], cells[3], cells[4]
-                name, url = cell_link(name_c)
-                mark = {"🥇": "1", "🥈": "2", "🥉": "3"}.get(rank, rank)
-                d = delta.replace("🔺", "").strip()
-                piece = f"{mark}. {name}｜{lang}｜{stars}★｜{d}"
-                if keep_url and url:
-                    piece += f"\n   {url}"
-                lines.append(piece)
-            elif "AIHOT" in sec_name or "AI 行业热点" in sec_name:
-                # # | 话题 | 印证度 | 首发源 | 分类
-                rank, t_c, proof, src = cells[0], cells[1], cells[2], cells[3]
-                title, url = cell_link(t_c)
-                mark = {"🥇": "1", "🥈": "2", "🥉": "3"}.get(rank, rank)
-                piece = f"{mark}. {title}（{proof}）"
-                if keep_url and url:
-                    piece += f"\n   {url}"
+                sec_printed = True
+            if len(cells) < 2:
+                continue
+            rank = {"🥇": "1", "🥈": "2", "🥉": "3"}.get(cells[0], cells[0])
+            if not re.fullmatch(r"\d+", rank or ""):
+                # 非榜单表格（如小红书失败说明），明细行不进入手机版
+                continue
+            if github:
+                # # | 项目 | 语言 | 总星标 | 增长 | 一句话简介
+                name = cell_link(cells[1])[0]
+                lang = strip_md(cells[2]) if len(cells) > 2 else ""
+                delta = strip_md(cells[4]).replace("🔺", "").strip() if len(cells) > 4 else ""
+                intro = strip_md(cells[5]) if len(cells) > 5 else ""
+                piece = f"{rank}. {name}"
+                for part in (lang, delta, intro):
+                    if part:
+                        piece += f"｜{part}"
                 lines.append(piece)
             else:
-                # # | 话题 | 热度 | 分类  (微博/抖音)
-                rank, t_c, heat = cells[0], cells[1], cells[2]
-                title, url = cell_link(t_c)
-                mark = {"🥇": "1", "🥈": "2", "🥉": "3"}.get(rank, rank)
-                piece = f"{mark}. {title}｜{heat}"
-                if keep_url and url:
-                    piece += f"\n   {url}"
-                lines.append(piece)
-        elif kind == "item_head":
-            sec_name, num, title, heat = payload
-            if "横向观察" in sec_name:
-                idx = int(num) - 1
-                mark = CIRCLED[idx] if 0 <= idx < len(CIRCLED) else f"{num}."
-                lines.append("")
-                lines.append(f"{mark} {title}")
-            # 详解标题行不单独输出（详解正文在手机版中省略）
-        elif kind == "para":
+                # 微博 / 抖音 / 小红书 / AIHOT：只要标题
+                lines.append(f"{rank}. {cell_link(cells[1])[0]}")
+            continue
+        if kind == "para":
             sec_name, text = payload
-            if "横向观察" in sec_name:
-                keep["obs"] = keep.get("obs", 0) + 1
-                if keep["obs"] <= 3:
-                    lines.append("")
-                    lines.append(text)
-                continue
-            if "详解" in sec_name or len(text) > 200:
-                # 手机版不收录长篇详解正文
-                continue
-            lines.append(text)
+            sec_name = sec_name or ""
+            if "小红书" in sec_name and ("失败" in text or "暂不可用" in text):
+                if not failed_note:
+                    failed_note = True
+                    if sec_name != cur_sec:
+                        cur_sec, sec_printed, github = sec_name, False, False
+                    if not sec_printed:
+                        lines.append("")
+                        lines.append(f"━━ {sec_name} ━━")
+                        sec_printed = True
+                    lines.append("⚠️ 该平台数据本轮获取失败")
+            continue
     return lines
 
 
@@ -283,11 +255,6 @@ def main():
         return 3
 
     parts = chunk(lines, args.limit)
-    if parts:
-        parts[-1].append("")
-        parts[-1].append(
-            "〔完整详解与全部链接见：%s〕" % os.path.basename(args.md)
-        )
     total = len(parts)
     body = []
     for n, p in enumerate(parts, 1):
