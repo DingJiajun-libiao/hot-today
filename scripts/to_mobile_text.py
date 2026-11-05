@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把「平台热点速览」Markdown 日报渲染成适合手机阅读的纯文本。
+"""把「平台热点速览」Markdown 日报渲染成适合手机阅读的纯文本（精简版）。
+
+规格（见 AGENTS.md 第七节）:
+    - GitHub：每个项目三行——项目名 / 「语言 · 今日增长 ★」/ 一句话简介，避免长行在手机上乱折
+    - 微博 / 抖音 / 小红书 / AIHOT: 仅标题
+    - 不含链接、热度值、详解正文、横向观察
+    - 单条约 2k 字符，通常 1-2 段发完
 
 用法:
-    python scripts/to_mobile_text.py 平台热点速览-2026-11-05.md
-    python scripts/to_mobile_text.py <md> --out <txt> --width 30 --limit 1500
+    python scripts/to_mobile_text.py doc/平台热点速览-2026-11-05.md
+    python scripts/to_mobile_text.py <md> --out <txt> --limit 1800
 
 输出:
-    同目录 `平台热点速览-YYYY-MM-DD.mobile.txt`，按段切分(每段 ≤ limit 字符)，
-    段与段之间用 `──── 段 N/M ────` 分隔，便于 IM 逐条发送。
-
-设计取舍:
-    - 手机版只保留「热点名」级别的信息，不带任何链接
-    - GitHub：项目名｜语言｜增长｜一句话简介
-    - 微博 / 抖音 / 小红书 / AIHOT：仅热点标题
-    - 热度值、详解正文、横向观察不进入手机版（完整内容见 .md）
+    同目录 `平台热点速览-YYYY-MM-DD.mobile.txt`，超长时按段切分，
+    段间用 `──── 段 N/M ────` 分隔（push_wechat.py 依赖该分隔符）。
 """
 
 import argparse
 import os
 import re
 import sys
+
+DESC_MAX = 40  # GitHub 一句话简介截断长度
+CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 
 # Windows 控制台默认 GBK,中文/emoji 直出会 UnicodeEncodeError
 for _stream in (sys.stdout, sys.stderr):
@@ -29,8 +32,6 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
-
 
 def strip_md(s):
     s = s.replace("**", "").replace("`", "")
@@ -38,12 +39,12 @@ def strip_md(s):
     return s.strip()
 
 
-def cell_link(cell):
-    """'[标题](url)' -> (标题, url)"""
-    m = re.search(r"\[([^\]]+)\]\(([^)]+)\)", cell)
+def cell_text(cell):
+    """'[标题](url)' -> '标题'（丢弃链接，手机版不要 URL）"""
+    m = re.search(r"\[([^\]]+)\]\([^)]*\)", cell)
     if m:
-        return strip_md(m.group(1)), m.group(2)
-    return strip_md(cell), ""
+        return strip_md(m.group(1))
+    return strip_md(cell)
 
 
 def split_row(line):
@@ -54,39 +55,58 @@ def is_sep_row(cells):
     return all(re.fullmatch(r":?-{2,}:?", c or "") for c in cells)
 
 
-def parse(md):
-    lines = md.splitlines()
-    out = []          # [(kind, text)]
-    date_line = ""
-    sec = None        # 当前二级标题
-    in_table = False
-    pending_detail = None
+def is_rank(cell):
+    return bool(re.fullmatch(r"(🥇|🥈|🥉|\d+)", (cell or "").strip()))
 
-    i = 0
-    while i < len(lines):
-        raw = lines[i]
+
+def rank_of(cell):
+    token = (cell or "").strip()
+    return {"🥇": "1", "🥈": "2", "🥉": "3"}.get(token, token)
+
+
+def parse(md):
+    """返回 [(kind, payload)]；kind ∈ title/date/section/row/note"""
+    lines = md.splitlines()
+    blocks = []
+    sec = None
+    in_table = False
+    skip_section = False
+    note_sent = False
+
+    for raw in lines:
         line = raw.rstrip()
-        i += 1
 
         if line.startswith("# "):
-            out.append(("title", strip_md(line[2:])))
+            blocks.append(("title", strip_md(line[2:])))
             continue
-        if re.fullmatch(r"\*\*\d{4}.*\*\*", line.strip()) or re.fullmatch(
-            r"^.{0,4}\d{4} 年.*星期.*$", strip_md(line)
-        ):
-            if not date_line and "年" in line and "星期" in line:
-                date_line = strip_md(line)
-                out.append(("date", date_line))
+
+        # 日期行（md 里是 **2026 年 11 月 5 日 · 星期四**）
+        m = re.fullmatch(r"\*\*(\d{4} 年[^*]*)\*\*", line.strip())
+        if m and not any(k == "date" for k, _ in blocks):
+            blocks.append(("date", strip_md(m.group(1))))
             continue
+
         if line.startswith("## "):
             sec = strip_md(line[3:])
             sec = re.sub(r"^[📑📊🔗\U0001F300-\U0001FAFF\s]+", "", sec)
-            pending_detail = None
+            # 手机版不收录的章节
+            skip_section = any(k in sec for k in ("目录", "今日速览", "跨平台", "横向观察"))
+            in_table = False
+            if not skip_section:
+                blocks.append(("section", sec))
+            continue
+
+        if line.startswith("### "):
             in_table = False
             continue
-        if line.startswith("### "):
-            pending_detail = strip_md(line[4:])
-            in_table = False
+
+        if not line.strip() or re.fullmatch(r"-{3,}", line.strip()):
+            continue
+
+        # 目录项 / 引用行
+        if re.match(r"^-\s*\[[^\]]+\]\(#[^)]*\)\s*$", line.strip()):
+            continue
+        if line.strip().startswith("> "):
             continue
 
         if line.startswith("|"):
@@ -94,103 +114,72 @@ def parse(md):
             if is_sep_row(cells):
                 in_table = True
                 continue
-            if in_table:
-                out.append(("row", (sec, cells)))
+            if in_table and not skip_section:
+                blocks.append(("row", (sec, cells)))
             continue
         in_table = False
 
-        # 详解条目标题行: **N. 标题** — 热度
-        m = re.match(r"^\*\*(\d+)\.\s*(.+?)\*\*\s*(?:—|–|-)\s*(.+)$", line.strip())
-        if m:
-            out.append(
-                ("item_head", (pending_detail or "", m.group(1), strip_md(m.group(2)), strip_md(m.group(3))))
-            )
+        # 段落：只保留「数据暂不可用」这类必要说明，且只保留一条，其余详解丢弃
+        text = strip_md(line)
+        if not text:
             continue
+        if "小红书" in (sec or "") and ("不可用" in text or "失败" in text or "500" in text):
+            if not note_sent:
+                note_sent = True
+                blocks.append(("note", "该平台数据本轮获取失败"))
+        continue
 
-        if not line.strip():
-            continue
-        # 跳过目录项
-        if re.match(r"^-\s*\[[^\]]+\]\(#[^)]*\)\s*$", line.strip()):
-            continue
-        s = strip_md(line)
-        if not s or s == "---":
-            continue
-        if s.startswith("> "):
-            s = s[2:]
-        out.append(("para", (pending_detail or sec or "", s)))
-
-    return out
+    return blocks
 
 
-def render(blocks):
-    """手机版只保留「热点名」级别的信息：不带任何链接、热度与详解正文。
-
-    - GitHub：`项目名｜语言｜增长｜一句话简介`
-    - 微博 / 抖音 / 小红书 / AIHOT：仅热点标题
-    """
-    lines = []
-    cur_sec = None
-    sec_printed = False
-    github = False
-    failed_note = False
-
+def render_brief(blocks):
+    out = []
+    last_section = None
     for kind, payload in blocks:
         if kind == "title":
-            lines.append(payload)
-            continue
-        if kind == "date":
-            lines.append(payload)
-            lines.append("")
-            continue
-        if kind == "row":
+            out.append("🔥 平台热点速览" if "速览" in payload else payload)
+        elif kind == "date":
+            out.append(payload)
+            out.append("")
+        elif kind == "section":
+            name = payload
+            name = re.sub(r"^[一二三四五六七八九十]+、", "", name).strip()
+            out.append("")
+            out.append(f"━━ {name} ━━")
+            last_section = name
+        elif kind == "row":
             sec, cells = payload
-            sec_name = sec or ""
-            if not sec_name or "今日速览" in sec_name or "跨平台" in sec_name or "目录" in sec_name:
+            name = sec or last_section or ""
+
+            if "GitHub" in name:
+                if len(cells) < 6 or not is_rank(cells[0]):
+                    continue
+                repo = cell_text(cells[1])
+                lang = strip_md(cells[2])
+                delta = strip_md(cells[4]).replace("🔺", "").strip()
+                desc = strip_md(cells[5])
+                if len(desc) > DESC_MAX:
+                    desc = desc[:DESC_MAX].rstrip(" ，,。.") + "…"
+                # 手机窄屏：项目名单独一行，语言/今日增长一行，简介一行，避免长行乱折
+                out.append(f"{rank_of(cells[0])}. {repo}")
+                meta_parts = [lang] if lang else []
+                if delta and delta not in ("—", "-", "--"):
+                    meta_parts.append(f"今日 {delta} ★")
+                if meta_parts:
+                    out.append("   " + " · ".join(meta_parts))
+                if desc:
+                    out.append(f"   {desc}")
                 continue
-            if sec_name != cur_sec:
-                cur_sec = sec_name
-                sec_printed = False
-                github = "GitHub" in sec_name
-            if not sec_printed:
-                lines.append("")
-                lines.append(f"━━ {sec_name} ━━")
-                sec_printed = True
-            if len(cells) < 2:
+
+            if len(cells) < 2 or not is_rank(cells[0]):
                 continue
-            rank = {"🥇": "1", "🥈": "2", "🥉": "3"}.get(cells[0], cells[0])
-            if not re.fullmatch(r"\d+", rank or ""):
-                # 非榜单表格（如小红书失败说明），明细行不进入手机版
-                continue
-            if github:
-                # # | 项目 | 语言 | 总星标 | 增长 | 一句话简介
-                name = cell_link(cells[1])[0]
-                lang = strip_md(cells[2]) if len(cells) > 2 else ""
-                delta = strip_md(cells[4]).replace("🔺", "").strip() if len(cells) > 4 else ""
-                intro = strip_md(cells[5]) if len(cells) > 5 else ""
-                piece = f"{rank}. {name}"
-                for part in (lang, delta, intro):
-                    if part:
-                        piece += f"｜{part}"
-                lines.append(piece)
-            else:
-                # 微博 / 抖音 / 小红书 / AIHOT：只要标题
-                lines.append(f"{rank}. {cell_link(cells[1])[0]}")
-            continue
-        if kind == "para":
-            sec_name, text = payload
-            sec_name = sec_name or ""
-            if "小红书" in sec_name and ("失败" in text or "暂不可用" in text):
-                if not failed_note:
-                    failed_note = True
-                    if sec_name != cur_sec:
-                        cur_sec, sec_printed, github = sec_name, False, False
-                    if not sec_printed:
-                        lines.append("")
-                        lines.append(f"━━ {sec_name} ━━")
-                        sec_printed = True
-                    lines.append("⚠️ 该平台数据本轮获取失败")
-            continue
-    return lines
+            title = cell_text(cells[1])
+            out.append(f"{rank_of(cells[0])}. {title}")
+        elif kind == "note":
+            if out and not out[-1].startswith("━━"):
+                out.append("")
+            out.append("⚠️ " + payload)
+    return out
 
 
 def tidy(lines):
@@ -214,7 +203,7 @@ def chunk(lines, limit):
     """按字符数切段，尽量在「━━ 章节 ━━」边界处断开。"""
     parts, buf = [], []
     size = 0
-    last_head = -1  # buf 中最近一个章节标题的下标
+    last_head = -1
 
     def bufsize(b):
         return sum(len(x) + 1 for x in b)
@@ -241,7 +230,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("md")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--limit", type=int, default=1400, help="每段最大字符数")
+    ap.add_argument("--limit", type=int, default=1800, help="每段最大字符数")
     args = ap.parse_args()
 
     if not os.path.exists(args.md):
@@ -249,7 +238,7 @@ def main():
         return 2
 
     md = open(args.md, encoding="utf-8").read()
-    lines = tidy(render(parse(md)))
+    lines = tidy(render_brief(parse(md)))
     if not lines:
         print("[error] 渲染结果为空", file=sys.stderr)
         return 3
@@ -263,10 +252,7 @@ def main():
         body.append("")
     text = "\n".join(body).rstrip() + "\n"
 
-    out = args.out
-    if not out:
-        base = os.path.splitext(args.md)[0]
-        out = base + ".mobile.txt"
+    out = args.out or os.path.splitext(args.md)[0] + ".mobile.txt"
     open(out, "w", encoding="utf-8", newline="\n").write(text)
 
     print(f"[ok] {out}")

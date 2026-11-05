@@ -64,7 +64,7 @@ python3 scripts/to_mobile_text.py 平台热点速览-2026-11-05.md --limit 1800
 python3 scripts/push_wechat.py 平台热点速览-2026-11-05.mobile.txt
 ```
 
-- `to_mobile_text.py`:手机版只保留热点名——GitHub 为「项目名｜语言｜增长｜一句话简介」,
+- `to_mobile_text.py`:手机版只保留热点名——GitHub 每条三行(项目名 / 语言·今日增长 / 一句话简介),
   微博/抖音/小红书/AIHOT 仅标题;不含任何链接与详解正文,按「──── 段 N/M ────」分段,适配手机/微信阅读。
 - `push_wechat.py`:调用插件本机投递接口 `POST http://127.0.0.1:<port>/api/dsh-im/delivery/messages`;
   机器人 / 投递目标从 `wechat-target.json`(`botId` / `targetId` / `port`,已在 `.gitignore` 中)
