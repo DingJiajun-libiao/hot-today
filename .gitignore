@@ -1,4 +1,6 @@
 # 运行产物:抓取临时数据与每日报告
+# 报告/手机版/临时文件统一落在 doc/ 下(见 AGENTS.md)，doc/ 整体忽略；
+# 下面几条为兜底，防止误写到项目根目录时被提交
 .trends_raw.json
 trends_raw.json
 平台热点速览-*.md
@@ -19,3 +21,15 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# 手机版纯文本
+*.mobile.txt
+
+# 微信投递目标配置
+wechat-target.json
+
+# 工作区本地执行契约(含本机路径与投递目标,不随开源仓库发布)
+AGENTS.md
+
+# 测试/探查残留文件目录(与本开源项目无关,不入库)
+doc/

@@ -52,6 +52,27 @@ python3 <skill-dir>/scripts/fetch_trends.py \
 
 Windows 下把 `python3` 换成 `python`。
 
+## 📱 手机版与微信推送(可选)
+
+报告可以再转成适合手机阅读的纯文本,并(可选)主动投递到微信:
+
+```bash
+# 1) 生成手机版(默认输出到 .md 同目录)
+python3 scripts/to_mobile_text.py 平台热点速览-2026-11-05.md --limit 1800
+
+# 2) 推送到微信(需要 DSH + @xmanrui/dsh-im 插件环境)
+python3 scripts/push_wechat.py 平台热点速览-2026-11-05.mobile.txt
+```
+
+- `to_mobile_text.py`:表格转行式、去 Markdown 符号,按「──── 段 N/M ────」分段,适配手机/微信阅读。
+- `push_wechat.py`:调用插件本机投递接口 `POST http://127.0.0.1:<port>/api/dsh-im/delivery/messages`;
+  机器人 / 投递目标从 `wechat-target.json`(`botId` / `targetId` / `port`,已在 `.gitignore` 中)
+  或 `--bot` / `--target` / 环境变量 `DSH_IM_BOT_ID` 读取。
+  退出码:`0` 全部送达 / `3` 部分段失败 / `1` 全部失败 / `2` 缺少配置。
+- 推送失败不阻断交付:报告照常生成,只记录成功/失败段数。
+
+> `push_wechat.py` 依赖 DSH-IM 插件的本机接口,不是通用能力;纯 Agent Skill 场景可忽略。
+
 ## 📄 报告样例
 
 ```markdown
