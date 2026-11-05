@@ -1,0 +1,28 @@
+{
+  "_comment": "复制为 config.json 后用 --config config.json 传入;数组中第一个为主源,其余按顺序回退。仅 weibo/douyin/xhs 可覆盖。",
+  "sources": {
+    "weibo": [
+      "https://60s.viki.moe/v2/weibo",
+      "https://60s.mizhoubaobei.top/v2/weibo",
+      "https://60s.crystelf.top/v2/weibo",
+      "https://api.elysiayanyu.top/v2/weibo",
+      "https://60s.zellon.top/v2/weibo",
+      "https://60s.7se.cn/v2/weibo"
+    ],
+    "douyin": [
+      "https://60s.viki.moe/v2/douyin",
+      "https://60s.mizhoubaobei.top/v2/douyin",
+      "https://60s.crystelf.top/v2/douyin",
+      "https://api.elysiayanyu.top/v2/douyin",
+      "https://60s.zellon.top/v2/douyin",
+      "https://60s.7se.cn/v2/douyin"
+    ],
+    "xhs": [
+      "https://60s.viki.moe/v2/rednote",
+      "https://60s.mizhoubaobei.top/v2/rednote",
+      "https://60s.crystelf.top/v2/rednote",
+      "https://api.elysiayanyu.top/v2/rednote",
+      "https://60s.zellon.top/v2/rednote"
+    ]
+  }
+}

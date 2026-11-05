@@ -1,0 +1,21 @@
+# 运行产物:抓取临时数据与每日报告
+.trends_raw.json
+trends_raw.json
+平台热点速览-*.md
+四平台热点速览-*.md
+
+# 本地配置(含自定义数据源),模板见 config.example.json
+config.json
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 杂项
+.trial/
+*.bak
+*.bak-*
+*.log
+.DS_Store
+Thumbs.db
